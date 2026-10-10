@@ -87,6 +87,7 @@ internal sealed partial class MainView : Component
     {
         onKeyDown = OnKeyDown;
         itemMenu = ItemMenu;
+        actionRow = ActionRow;
         onKeyUp = e => { OnKeyUpCommit(e); };
         actions = BuildActions();
         previews.ThumbnailReady = Invalidate;

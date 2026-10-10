@@ -34,6 +34,7 @@ internal sealed partial class MainView
     // BuildActions lists Paste first: it is also the Enter action and the footer's Paste button.
     private ClipAction PasteAction => actions[0];
     private readonly NodeRef<TextInput> actionSearchRef = new();
+    private readonly Func<ClipAction, Node> actionRow;
 
     private bool actionsOpen;
     private string actionSearch = "";
@@ -264,16 +265,9 @@ internal sealed partial class MainView
     // A click outside the menu closes it; the menu sits above the footer's right end, like Raycast.
     private Node ActionsOverlay()
     {
-        var rows = new Node[actionMatches.Count];
-        for (int i = 0; i < rows.Length; i++)
-        {
-            rows[i] = ActionRow(actionMatches[i], i == actionIndex);
-        }
-
         Node menu = new Column(children:
             [
-                new Column(spacing: 2, children: rows.Length > 0 ? rows : [new Label("No matching actions").FontSize(12).Color(Look.TextSecondary).Padding(EdgeInsets.All(8))])
-                    .Padding(EdgeInsets.All(6)),
+                ActionList(),
                 new TextInput(Bind(actionSearch, v =>
                     {
                         actionSearch = v;
@@ -300,6 +294,44 @@ internal sealed partial class MainView
                         menu,
                     ]),
             ]);
+    }
+
+    // The highlight follows the arrow keys and the mouse alike (SelectOnHover); clicking a row runs
+    // it, and focus stays in the menu's search box.
+    private Node ActionList()
+    {
+        if (actionMatches.Count == 0)
+        {
+            return new Label("No matching actions").FontSize(12).Color(Look.TextSecondary).Padding(EdgeInsets.All(8 + ActionListPadding));
+        }
+        ClipAction? current = actionIndex >= 0 && actionIndex < actionMatches.Count ? actionMatches[actionIndex] : null;
+        return new ListView<ClipAction>(
+                actionMatches,
+                actionRow,
+                SelectionMode.Single,
+                onSelect: action =>
+                {
+                    actionIndex = actionMatches.IndexOf(action);
+                    Invalidate();
+                },
+                selected: Bind<ClipAction>(current!, v => { actionIndex = actionMatches.IndexOf(v); }))
+            .ItemHeight(ActionRowHeight)
+            .Plain()
+            .SelectionHighlight(false)
+            .FocusOnClick(false)
+            .SelectOnHover()
+            .OnActivate(action => { Trigger(action, null); })
+            .Padding(EdgeInsets.All(ActionListPadding))
+            .Height((actionMatches.Count * ActionRowHeight) + (2 * ActionListPadding));
+    }
+
+    private const float ActionRowHeight = 34;
+    private const float ActionListPadding = 6;
+
+    private Node ActionRow(ClipAction action)
+    {
+        bool highlighted = actionIndex >= 0 && actionIndex < actionMatches.Count && ReferenceEquals(actionMatches[actionIndex], action);
+        return ActionRow(action, highlighted);
     }
 
     private Node ActionRow(ClipAction action, bool highlighted)

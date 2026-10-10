@@ -1,7 +1,9 @@
+using System.Reflection;
 using Cascade.UI;
 using ClipClop2.History;
 using ClipClop2.Platform;
 using ClipClop2.Storage;
+using ClipClop2.Ui;
 
 namespace ClipClop2;
 
@@ -12,6 +14,11 @@ namespace ClipClop2;
 internal static class ClipClopApp
 {
     private const long BytesPerMb = 1024L * 1024L;
+
+    // The product version (csproj <Version>), without the "+commit" build metadata the SDK appends.
+    private static readonly string AppVersion =
+        (typeof(ClipClopApp).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "")
+            .Split('+')[0];
 
     private static PayloadCache cache = null!;
     private static ClipboardService? clipboard;
@@ -75,10 +82,12 @@ internal static class ClipClopApp
                 {
                     Items =
                     [
-                        TrayMenuItem.Action("Open", () => { ShowPopup(); }),
-                        TrayMenuItem.Action("Settings", () => { ShowPopup(settings: true); }),
+                        TrayMenuItem.Action("&Open ClipClop", () => { ShowPopup(); }, Look.Paste),
+                        TrayMenuItem.Action("&Settings…", () => { ShowPopup(settings: true); }, Look.Sliders),
                         TrayMenuItem.Separator(),
-                        TrayMenuItem.Action("Quit", () => { App.Exit(); }),
+                        TrayMenuItem.Info($"Version {AppVersion}"),
+                        TrayMenuItem.Separator(),
+                        TrayMenuItem.Action("&Quit", () => { App.Exit(); }, Look.Power),
                     ],
                 },
             };

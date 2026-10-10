@@ -33,6 +33,7 @@ internal sealed partial class MainView
             // Typing always filters: clicking or right-clicking a row selects it and leaves focus in the
             // search box (the row's menu hands it back there when it closes).
             .FocusOnClick(false)
+            .SelectOnHover()
             .ItemAccessibleName(itemAccessibleName)
             .ItemContextMenu(itemMenu)
             .Ref(historyListRef)
