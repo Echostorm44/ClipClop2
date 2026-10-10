@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AssemblyName>ClipClop2</AssemblyName>
+    <RootNamespace>ClipClop2</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- The cascade installer packager stages generated helper projects under "<output>-build";
+         keep its output out of this project's default globbing. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);dist/**;dist-build/**;tests/**</DefaultItemExcludes>
+
+    <ApplicationIcon>Assets\appIcon.ico</ApplicationIcon>
+
+    <!-- Debug swaps in the package's DevTools build of Cascade.UI (MCP inspection surface).
+         The listener still needs CASCADE_MCP=1 at runtime. -->
+    <CascadeDevTools Condition="'$(Configuration)' == 'Debug'">true</CascadeDevTools>
+
+    <!-- Release is self-contained Native AOT. -->
+    <PublishAot Condition="'$(Configuration)' == 'Release'">true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <StripSymbols>true</StripSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Echostorm.Cascade.UI" Version="0.1.0-alpha.38" />
+    <PackageReference Include="Echostorm.SharpImage" Version="1.0.13" />
+    <PackageReference Include="System.IO.Hashing" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ClipClop2.Tests" />
+  </ItemGroup>
+
+</Project>
