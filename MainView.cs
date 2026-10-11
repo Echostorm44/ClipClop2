@@ -391,7 +391,8 @@ internal sealed partial class MainView : Component
                         .Width(170),
                 ])
             .Padding(EdgeInsets.Symmetric(horizontal: 14, vertical: 10))
-            .BorderBottom(Look.Hairline, 1);
+            .BorderBottom(Look.Hairline, 1)
+            .WindowDragArea();
     }
 
     private Node Footer()
@@ -410,7 +411,8 @@ internal sealed partial class MainView : Component
                         () => { OpenActions(); }),
                 ])
             .Padding(EdgeInsets.Only(left: 14, right: 8, top: 4, bottom: 4))
-            .BorderTop(Look.Hairline, 1);
+            .BorderTop(Look.Hairline, 1)
+            .WindowDragArea();
     }
 
     /// <summary>A footer hint that is also a button: the label and its keys, highlighted under the pointer.</summary>

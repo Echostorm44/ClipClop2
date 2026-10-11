@@ -24,6 +24,10 @@ internal static class ClipClopApp
     private static ClipboardService? clipboard;
     private static Hotkey? registeredHotkey;
 
+    // The popup's window rect (physical pixels) as placed when it opened: a different rect when it
+    // hides means the user moved it.
+    private static Rect placedAt;
+
     public static Settings Settings { get; private set; } = new();
 
     public static HistoryStore History { get; private set; } = null!;
@@ -63,7 +67,8 @@ internal static class ClipClopApp
         window.ShowInTaskbar = false;
         window.HideOnClose = true;
         window.AlwaysOnTop = true;
-        window.Resizable = false;
+        window.Resizable = true;
+        window.MinimumSize = new Size(Settings.MinPopupWidth, Settings.MinPopupHeight);
         window.Deactivated += HidePopup;
 
         App.OnSecondInstanceLaunched(_ => ShowPopup());
@@ -73,7 +78,10 @@ internal static class ClipClopApp
         {
             config.Theme = new AppleTheme(ThemeMode.Dark);
             config.SingleInstance = true;
-            config.WindowSize = new Size(820, 520);
+            config.WindowSize = new Size(Settings.PopupWidth, Settings.PopupHeight);
+            // No GPU device: the popup is small and hidden most of the day. Measured 2026-10-10 on
+            // an NVIDIA D3D12 driver: hidden 15 MB vs 63 MB (Task Manager), reopen frame 10–12 ms vs 3 ms.
+            config.Gpu = GpuPreference.Cpu;
             config.Tray = new TrayIcon
             {
                 Tooltip = "ClipClop",
@@ -122,7 +130,7 @@ internal static class ClipClopApp
     public static void ShowPopup(bool settings = false)
     {
         Opening?.Invoke(settings);
-        App.Window.CenterOn(App.Screens.AtCursor);
+        PlacePopup();
         App.Window.Activate();
     }
 
@@ -132,8 +140,74 @@ internal static class ClipClopApp
         {
             return;
         }
+        RememberPlacement();
         App.Window.Hide();
         Hidden?.Invoke();
+    }
+
+    /// <summary>Forgets the popup's size and position: it opens at the default size, centered.</summary>
+    public static void ResetPopupPlacement()
+    {
+        Settings.PopupWidth = Settings.DefaultPopupWidth;
+        Settings.PopupHeight = Settings.DefaultPopupHeight;
+        Settings.PopupX = null;
+        Settings.PopupY = null;
+        SettingsStore.Save(Settings);
+        App.Window.SetSize(Settings.PopupWidth, Settings.PopupHeight);
+        PlacePopup();
+    }
+
+    // Where the user dragged the popup, while that spot is still on a monitor (one may have been
+    // unplugged since); otherwise centered on the monitor under the cursor.
+    private static void PlacePopup()
+    {
+        if (Settings.PopupX is int x && Settings.PopupY is int y && IsOnAScreen(x, y, App.Window.ScreenBounds.Width))
+        {
+            App.Window.SetScreenPosition(x, y);
+        }
+        else
+        {
+            App.Window.CenterOn(App.Screens.AtCursor);
+        }
+        placedAt = App.Window.ScreenBounds;
+    }
+
+    // The middle of the popup's top edge (where the search box is) must land in a work area.
+    private static bool IsOnAScreen(int x, int y, float width)
+    {
+        var top = new Point(x + width / 2, y + 1);
+        foreach (ScreenInfo screen in App.Screens.All)
+        {
+            if (screen.WorkArea.Contains(top))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // A move or resize the user made while the popup was open is kept for the next time.
+    private static void RememberPlacement()
+    {
+        Rect client = App.Window.ClientBounds;
+        Rect screen = App.Window.ScreenBounds;
+        bool changed = false;
+        if (MathF.Abs(client.Width - Settings.PopupWidth) >= 1 || MathF.Abs(client.Height - Settings.PopupHeight) >= 1)
+        {
+            Settings.PopupWidth = MathF.Round(client.Width);
+            Settings.PopupHeight = MathF.Round(client.Height);
+            changed = true;
+        }
+        if (screen.X != placedAt.X || screen.Y != placedAt.Y)
+        {
+            Settings.PopupX = (int)screen.X;
+            Settings.PopupY = (int)screen.Y;
+            changed = true;
+        }
+        if (changed)
+        {
+            SettingsStore.Save(Settings);
+        }
     }
 
     /// <summary>Registers <paramref name="hotkey"/> in place of the current one. False (old one kept) when taken.</summary>

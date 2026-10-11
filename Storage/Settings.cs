@@ -34,10 +34,39 @@ internal sealed class Settings
     /// <summary>Cap on everything unpinned history holds, RAM and temp cache together.</summary>
     public int HistoryBudgetMb { get; set; } = DefaultHistoryBudgetMb;
 
+    public const float DefaultPopupWidth = 820;
+    public const float DefaultPopupHeight = 520;
+    public const float MinPopupWidth = 640;
+    public const float MinPopupHeight = 400;
+
+    /// <summary>Popup size in logical pixels, as the user last resized it.</summary>
+    public float PopupWidth { get; set; } = DefaultPopupWidth;
+
+    public float PopupHeight { get; set; } = DefaultPopupHeight;
+
+    /// <summary>
+    /// Where the user dragged the popup: its top-left corner in physical virtual-desktop pixels.
+    /// Null (the default) centers it on the monitor under the cursor each time it opens.
+    /// </summary>
+    public int? PopupX { get; set; }
+
+    public int? PopupY { get; set; }
+
+    [JsonIgnore]
+    public bool PopupPlacementCustomized =>
+        PopupX is not null || PopupWidth != DefaultPopupWidth || PopupHeight != DefaultPopupHeight;
+
     /// <summary>Clamps values a hand-edited or older file might carry.</summary>
     public void Normalize()
     {
         HistoryBudgetMb = Math.Max(MinHistoryBudgetMb, HistoryBudgetMb);
+        PopupWidth = float.IsFinite(PopupWidth) ? Math.Max(MinPopupWidth, PopupWidth) : DefaultPopupWidth;
+        PopupHeight = float.IsFinite(PopupHeight) ? Math.Max(MinPopupHeight, PopupHeight) : DefaultPopupHeight;
+        if (PopupX is null || PopupY is null)
+        {
+            PopupX = null;
+            PopupY = null;
+        }
     }
 }
 

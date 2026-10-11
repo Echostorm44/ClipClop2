@@ -58,7 +58,8 @@ internal sealed partial class MainView
                             new Label("Settings").FontSize(15).Bold().Color(Look.TextPrimary).Expand(),
                         ])
                     .Padding(EdgeInsets.Symmetric(horizontal: 16, vertical: 14))
-                    .BorderBottom(Look.Hairline, 1),
+                    .BorderBottom(Look.Hairline, 1)
+                    .WindowDragArea(),
 
                 new ScrollView(new Column(
                         spacing: 0,
@@ -103,6 +104,17 @@ internal sealed partial class MainView
                                     .Suffix(new Label("MB").FontSize(12).Color(Look.TextSecondary))
                                     .Width(140)),
                             SettingRow(
+                                "Window",
+                                settings.PopupPlacementCustomized
+                                    ? "Opens at the size and place you left it. Drag the search bar or footer to move it; drag an edge to resize."
+                                    : "Opens centered on the screen with the mouse. Drag the search bar or footer to move it; drag an edge to resize.",
+                                new Button("Reset", () =>
+                                    {
+                                        ClipClopApp.ResetPopupPlacement();
+                                        Invalidate();
+                                    })
+                                    .Disabled(!settings.PopupPlacementCustomized)),
+                            SettingRow(
                                 "Pinned items",
                                 $"{ClipClopApp.History.PinnedEntries.Count.ToString("N0", CultureInfo.CurrentCulture)} pinned, saved encrypted for your Windows account.",
                                 Node.Empty),
@@ -119,7 +131,8 @@ internal sealed partial class MainView
                                 () => { CloseSettings(); }),
                         ])
                     .Padding(EdgeInsets.Only(left: 14, right: 8, top: 4, bottom: 4))
-                    .BorderTop(Look.Hairline, 1),
+                    .BorderTop(Look.Hairline, 1)
+                    .WindowDragArea(),
             ])
             .Background(Look.Background);
     }

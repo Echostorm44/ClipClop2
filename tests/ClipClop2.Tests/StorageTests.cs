@@ -66,4 +66,34 @@ internal sealed class SettingsTests
         await Assert.That(restored.HotkeyModifiers).IsEqualTo(Cascade.UI.ModifierKeys.Ctrl | Cascade.UI.ModifierKeys.Shift);
         await Assert.That(json).Contains("\"HotkeyKey\": \"V\"");
     }
+
+    [Test]
+    public async Task PopupPlacementRoundTrips()
+    {
+        var original = new Settings { PopupWidth = 900, PopupHeight = 600, PopupX = -1200, PopupY = 410 };
+
+        string json = JsonSerializer.Serialize(original, SettingsJsonContext.Default.Settings);
+        Settings? restored = JsonSerializer.Deserialize(json, SettingsJsonContext.Default.Settings);
+
+        await Assert.That(restored).IsNotNull();
+        await Assert.That(restored!.PopupWidth).IsEqualTo(900f);
+        await Assert.That(restored.PopupHeight).IsEqualTo(600f);
+        await Assert.That(restored.PopupX).IsEqualTo(-1200); // a monitor left of the primary
+        await Assert.That(restored.PopupY).IsEqualTo(410);
+        await Assert.That(restored.PopupPlacementCustomized).IsTrue();
+        await Assert.That(new Settings().PopupPlacementCustomized).IsFalse();
+    }
+
+    [Test]
+    public async Task NormalizeClampsPopupPlacement()
+    {
+        var settings = new Settings { PopupWidth = 100, PopupHeight = float.NaN, PopupX = 50, PopupY = null };
+
+        settings.Normalize();
+
+        await Assert.That(settings.PopupWidth).IsEqualTo(Settings.MinPopupWidth);
+        await Assert.That(settings.PopupHeight).IsEqualTo(Settings.DefaultPopupHeight);
+        await Assert.That(settings.PopupX).IsNull(); // half a position is no position
+        await Assert.That(settings.PopupY).IsNull();
+    }
 }
