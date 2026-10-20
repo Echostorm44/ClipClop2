@@ -1,0 +1,119 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# build-installer.yml — build the ClipClop2 setup exe, sign every exe with Azure Trusted
+# Signing, and attach it to a GitHub Release. Triggered by pushing a version tag (v*);
+# a manual run (workflow_dispatch) builds and signs but only uploads a build artifact.
+#
+# `cascade package --installer` builds the app, wizard, uninstaller and the single-file
+# setup launcher, and, given the --sign-azure-* flags, signs every one of those exes via
+# signtool + the Trusted Signing dlib. Auth is OIDC: azure/login federates GitHub's
+# id-token to the signing service, so there is no pfx or client secret.
+#
+# The tag version flows into the build via the MSBuild `Version` property (env var).
+# ─────────────────────────────────────────────────────────────────────────────
+name: Build Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write          # create the GitHub Release + upload assets
+  id-token: write          # OIDC token for Azure Trusted Signing (azure/login)
+
+env:
+  # Same Trusted Signing account + certificate profile as QuickFixMyPics2; only the Entra app
+  # registration behind AZURE_CLIENT_ID differs (this repo uses "clipclop2-signing").
+  SIGN_ENDPOINT: https://eus.codesigning.azure.net/
+  SIGN_ACCOUNT: AdamMarciniec
+  SIGN_PROFILE: AdamMarciniec
+  SIGN_TIMESTAMP: http://timestamp.acs.microsoft.com
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    # The Azure federated credential is scoped to this environment
+    # (subject: repo:Echostorm44@107306362/ClipClop2@1426857311:environment:release).
+    environment: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Derive version from tag
+        id: ver
+        shell: pwsh
+        run: |
+          $ref = "${{ github.ref_name }}"
+          if ($ref -match '^v(.+)$') { $v = $Matches[1] } else { $v = '0.0.0-dev' }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "Version=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Building version $v"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          # No subscription-id: the service principal's only role is "Artifact Signing Certificate
+          # Profile Signer" on the signing ACCOUNT, not a subscription, so selecting one fails.
+          # An Entra token is all the signing endpoint needs.
+          allow-no-subscriptions: true
+
+      - name: Install Trusted Signing dlib + locate signtool
+        shell: pwsh
+        run: |
+          $ts = Join-Path $env:RUNNER_TEMP 'tsclient'
+          New-Item -ItemType Directory -Force $ts | Out-Null
+          foreach ($pkg in @('Microsoft.Trusted.Signing.Client','Microsoft.ArtifactSigning.Client')) {
+            nuget install $pkg -OutputDirectory $ts -Source https://api.nuget.org/v3/index.json -NonInteractive
+            if ($LASTEXITCODE -eq 0) { break }
+          }
+          $dlib = (Get-ChildItem $ts -Recurse -Filter 'Azure.CodeSigning.Dlib.dll' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if (-not $dlib) { Write-Error 'Azure.CodeSigning.Dlib.dll not found in the Trusted Signing client package.'; exit 1 }
+          "TS_DLIB=$dlib" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "dlib: $dlib"
+
+      - name: Install cascade CLI
+        shell: pwsh
+        run: |
+          dotnet tool install --global Echostorm.Cascade.UI.Tools --prerelease
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build + sign installer
+        shell: pwsh
+        run: |
+          # The packager signs every exe it builds (app, wizard, uninstaller, launcher).
+          cascade package --installer --project ClipClop2.csproj --configuration Release --output dist `
+            --sign-azure-endpoint $env:SIGN_ENDPOINT `
+            --sign-azure-account  $env:SIGN_ACCOUNT `
+            --sign-azure-profile  $env:SIGN_PROFILE `
+            --sign-azure-dlib     "$env:TS_DLIB" `
+            --sign-timestamp      $env:SIGN_TIMESTAMP
+          if (-not (Test-Path 'dist/ClipClop2-Setup.exe')) { Write-Error 'Setup exe was not produced.'; exit 1 }
+          $sig = Get-AuthenticodeSignature 'dist/ClipClop2-Setup.exe'
+          Write-Host "Setup.exe signature status: $($sig.Status) ($($sig.SignerCertificate.Subject))"
+          if ($sig.Status -ne 'Valid') { Write-Error "Setup.exe is not validly signed ($($sig.Status))."; exit 1 }
+          Get-ChildItem dist
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClipClop2-Setup
+          path: dist/ClipClop2-Setup.exe
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ClipClop2 ${{ steps.ver.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
