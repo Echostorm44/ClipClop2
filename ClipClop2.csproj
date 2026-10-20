@@ -28,7 +28,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Echostorm.Cascade.UI" Version="0.1.0-alpha.40" />
+    <PackageReference Include="Echostorm.Cascade.UI" Version="0.1.0-alpha.41" />
     <PackageReference Include="Echostorm.SharpImage" Version="1.0.13" />
     <PackageReference Include="System.IO.Hashing" Version="10.0.12" />
   </ItemGroup>
