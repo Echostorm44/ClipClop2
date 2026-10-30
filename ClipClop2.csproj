@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <AssemblyName>ClipClop2</AssemblyName>
     <RootNamespace>ClipClop2</RootNamespace>
     <Nullable>enable</Nullable>
@@ -28,7 +28,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Echostorm.Cascade.UI" Version="0.1.0-alpha.48" />
+    <PackageReference Include="Echostorm.Cascade.UI" Version="0.1.0-alpha.49" />
     <PackageReference Include="Echostorm.SharpImage" Version="1.0.17" />
     <PackageReference Include="System.IO.Hashing" Version="10.0.12" />
   </ItemGroup>

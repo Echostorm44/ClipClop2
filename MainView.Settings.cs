@@ -118,6 +118,10 @@ internal sealed partial class MainView
                                 "Pinned items",
                                 $"{ClipClopApp.History.PinnedEntries.Count.ToString("N0", CultureInfo.CurrentCulture)} pinned, saved encrypted for your Windows account.",
                                 Node.Empty),
+                            SettingRow("Updates", UpdatesDescription(), UpdatesControl()),
+                            AppUpdates.Problem is { } updateProblem
+                                ? new Label(updateProblem).FontSize(12).Color(Look.Warning).Padding(EdgeInsets.Only(left: 16, bottom: 8))
+                                : Node.Empty,
                         ]))
                     .Expand(),
 
@@ -135,6 +139,49 @@ internal sealed partial class MainView
                     .WindowDragArea(),
             ])
             .Background(Look.Background);
+    }
+
+    private void OnUpdatesChanged()
+    {
+        if (screen == Screen.Settings)
+        {
+            Invalidate();
+        }
+    }
+
+    private static string UpdatesDescription()
+    {
+        string current = ClipClopApp.AppVersion;
+        if (!AppUpdates.Supported)
+        {
+            return $"Version {current}. Only a copy installed with ClipClop2-Setup can update itself.";
+        }
+        if (AppUpdates.Installing)
+        {
+            return $"Downloading version {AppUpdates.AvailableVersion}. ClipClop restarts when it is ready.";
+        }
+        if (AppUpdates.AvailableVersion is { } available)
+        {
+            return $"Version {available} is available (you have {current}).";
+        }
+        return AppUpdates.LastChecked is { } checkedAt
+            ? $"Version {current} is the latest (checked {checkedAt.ToString("t", CultureInfo.CurrentCulture)})."
+            : $"Version {current}. Checked for updates when ClipClop starts and every few hours after.";
+    }
+
+    private static Node UpdatesControl()
+    {
+        if (!AppUpdates.Supported)
+        {
+            return Node.Empty;
+        }
+        if (AppUpdates.AvailableVersion is not null)
+        {
+            return new Button("Update and restart", () => { _ = AppUpdates.InstallAsync(); })
+                .Disabled(AppUpdates.Installing);
+        }
+        return new Button("Check now", () => { _ = AppUpdates.CheckNowAsync(); })
+            .Disabled(AppUpdates.Checking);
     }
 
     private void OnHotkeyChosen(Hotkey hotkey)

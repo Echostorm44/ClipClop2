@@ -16,7 +16,7 @@ internal static class ClipClopApp
     private const long BytesPerMb = 1024L * 1024L;
 
     // The product version (csproj <Version>), without the "+commit" build metadata the SDK appends.
-    private static readonly string AppVersion =
+    public static readonly string AppVersion =
         (typeof(ClipClopApp).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "")
             .Split('+')[0];
 
@@ -48,6 +48,7 @@ internal static class ClipClopApp
         AppPaths.EnsureCreated();
         Settings = SettingsStore.Load();
         SyncStartupRegistration();
+        AppUpdates.Configure(AppVersion);
 
         // Unpinned history never outlives the process: clear what a crash may have left behind.
         cache = new PayloadCache(AppPaths.CacheDirectory);
@@ -86,26 +87,38 @@ internal static class ClipClopApp
             {
                 Tooltip = "ClipClop",
                 OnClick = TogglePopup,
-                Menu = new TrayMenuDefinition
-                {
-                    Items =
-                    [
-                        TrayMenuItem.Action("&Open ClipClop", () => { ShowPopup(); }, Look.Paste),
-                        TrayMenuItem.Action("&Settings…", () => { ShowPopup(settings: true); }, Look.Sliders),
-                        TrayMenuItem.Separator(),
-                        TrayMenuItem.Info($"Version {AppVersion}"),
-                        TrayMenuItem.Separator(),
-                        TrayMenuItem.Action("&Quit", () => { App.Exit(); }, Look.Power),
-                    ],
-                },
+                MenuProvider = TrayMenu,
             };
         });
+    }
+
+    // Rebuilt each time the menu opens, so an update found since shows up.
+    private static TrayMenuDefinition TrayMenu()
+    {
+        TrayMenuItem version = AppUpdates.Installing
+            ? TrayMenuItem.Info("Updating…", Look.Download)
+            : AppUpdates.AvailableVersion is { } available
+                ? TrayMenuItem.Action($"&Update to {available}", () => { _ = AppUpdates.InstallAsync(); }, Look.Download)
+                : TrayMenuItem.Info($"Version {AppVersion}");
+        return new TrayMenuDefinition
+        {
+            Items =
+            [
+                TrayMenuItem.Action("&Open ClipClop", () => { ShowPopup(); }, Look.Paste),
+                TrayMenuItem.Action("&Settings…", () => { ShowPopup(settings: true); }, Look.Sliders),
+                TrayMenuItem.Separator(),
+                version,
+                TrayMenuItem.Separator(),
+                TrayMenuItem.Action("&Quit", () => { App.Exit(); }, Look.Power),
+            ],
+        };
     }
 
     /// <summary>Starts the parts that need the native window: clipboard monitoring and the hotkey.</summary>
     public static void OnWindowReady()
     {
         clipboard ??= new ClipboardService(History, cache);
+        AppUpdates.Started();
         if (!TryRegisterHotkey(Settings.Hotkey))
         {
             App.Tray?.ShowNotification(new TrayNotification
@@ -132,6 +145,7 @@ internal static class ClipClopApp
         Opening?.Invoke(settings);
         PlacePopup();
         App.Window.Activate();
+        _ = AppUpdates.CheckIfDueAsync();
     }
 
     public static void HidePopup()

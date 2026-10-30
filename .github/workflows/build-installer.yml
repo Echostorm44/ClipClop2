@@ -1,7 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# build-installer.yml — build the ClipClop2 setup exe, sign every exe with Azure Trusted
-# Signing, and attach it to a GitHub Release. Triggered by pushing a version tag (v*);
-# a manual run (workflow_dispatch) builds and signs but only uploads a build artifact.
+# build-installer.yml — build the ClipClop2 setup exe and the auto-update package (zip +
+# manifest.json), sign every exe with Azure Trusted Signing, and attach them to a GitHub
+# Release. Triggered by pushing a version tag (v*); a manual run (workflow_dispatch) builds
+# and signs but only uploads the setup exe as a build artifact.
 #
 # `cascade package --installer` builds the app, wizard, uninstaller and the single-file
 # setup launcher, and, given the --sign-azure-* flags, signs every one of those exes via
@@ -76,8 +77,17 @@ jobs:
           }
           $dlib = (Get-ChildItem $ts -Recurse -Filter 'Azure.CodeSigning.Dlib.dll' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
           if (-not $dlib) { Write-Error 'Azure.CodeSigning.Dlib.dll not found in the Trusted Signing client package.'; exit 1 }
-          "TS_DLIB=$dlib" | Out-File -FilePath $env:GITHUB_ENV -Append
+          # signtool + the metadata json (/dmdf) sign the update package's exe, outside the packager.
+          $signtool = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter 'signtool.exe' -ErrorAction SilentlyContinue |
+                       Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          if (-not $signtool) { Write-Error 'signtool.exe not found.'; exit 1 }
+          $meta = Join-Path $env:RUNNER_TEMP 'trusted-signing.json'
+          "{""Endpoint"":""$env:SIGN_ENDPOINT"",""CodeSigningAccountName"":""$env:SIGN_ACCOUNT"",""CertificateProfileName"":""$env:SIGN_PROFILE""}" | Set-Content -Path $meta -Encoding ascii
+          "TS_DLIB=$dlib"         | Out-File -FilePath $env:GITHUB_ENV -Append
+          "TS_SIGNTOOL=$signtool" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "TS_META=$meta"         | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "dlib: $dlib"
+          Write-Host "signtool: $signtool"
 
       - name: Install cascade CLI
         shell: pwsh
@@ -99,6 +109,27 @@ jobs:
           $sig = Get-AuthenticodeSignature 'dist/ClipClop2-Setup.exe'
           Write-Host "Setup.exe signature status: $($sig.Status) ($($sig.SignerCertificate.Subject))"
           if ($sig.Status -ne 'Valid') { Write-Error "Setup.exe is not validly signed ($($sig.Status))."; exit 1 }
+          Get-ChildItem dist
+
+      # What installed copies update to: the signed app as a zip, and manifest.json listing it.
+      # The app reads releases/latest/download/manifest.json, so both ride on the GitHub Release.
+      - name: Build + sign update package, generate manifest
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # cascade publish checks for a token even with --dry-run
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          dotnet publish ClipClop2.csproj -c Release -r win-x64 --self-contained -p:PublishAot=true -p:DebugType=none -p:DebugSymbols=false -o app-publish
+          & "$env:TS_SIGNTOOL" sign /v /fd SHA256 /tr $env:SIGN_TIMESTAMP /td SHA256 /dlib "$env:TS_DLIB" /dmdf "$env:TS_META" "app-publish\ClipClop2.exe"
+          if ($LASTEXITCODE -ne 0) { Write-Error 'Signing the update package exe failed.'; exit 1 }
+          $zip = "dist/ClipClop2-$ver-win-x64.zip"
+          if (Test-Path $zip) { Remove-Item $zip }
+          Compress-Archive -Path app-publish/* -DestinationPath $zip
+          # AppId matches Installer.cs.
+          cascade publish --github Echostorm44/ClipClop2 --update-manifest --dry-run `
+            --app-id 5B5BBEAD-36E4-4B39-BA56-CD4F0CF87BBA `
+            --version $ver --rid win-x64 --package $zip --dist dist
+          if (-not (Test-Path 'dist/manifest.json')) { Write-Error 'manifest.json was not generated.'; exit 1 }
           Get-ChildItem dist
 
       - name: Upload build artifact

@@ -98,6 +98,7 @@ internal sealed partial class MainView : Component
         ClipClopApp.History.Changed += OnHistoryChanged;
         ClipClopApp.Opening += OnOpening;
         ClipClopApp.Hidden += OnHidden;
+        AppUpdates.Changed += OnUpdatesChanged;
         Keyboard.ModifiersChanged += OnModifiersChanged;
         ClipClopApp.OnWindowReady();
         return Task.CompletedTask;
@@ -108,6 +109,7 @@ internal sealed partial class MainView : Component
         ClipClopApp.History.Changed -= OnHistoryChanged;
         ClipClopApp.Opening -= OnOpening;
         ClipClopApp.Hidden -= OnHidden;
+        AppUpdates.Changed -= OnUpdatesChanged;
         Keyboard.ModifiersChanged -= OnModifiersChanged;
     }
 
