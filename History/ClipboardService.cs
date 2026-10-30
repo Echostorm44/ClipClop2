@@ -29,8 +29,11 @@ internal sealed class ClipboardService : IDisposable
 
     private void OnChanged(ClipboardChangedEventArgs args)
     {
-        // Our own pastes and content a password manager marks private are never recorded.
-        if (args.Source == ClipboardSource.ThisApp || args.IsExcludedFromHistory)
+        // Our own pastes and content a password manager marks private are never recorded. Neither is
+        // content relayed from the other end of a Remote Desktop connection: it belongs to that
+        // machine's history, and reading it pulls every format across the link, which can make the
+        // two relays echo the clipboard until its formats have no data behind them.
+        if (args.Source == ClipboardSource.ThisApp || args.IsExcludedFromHistory || args.IsFromRemoteDesktop)
         {
             return;
         }
