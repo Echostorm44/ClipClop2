@@ -103,7 +103,7 @@ internal sealed class ClipEntry
     /// <summary>Every format restored on paste, in the order the source offered them.</summary>
     public IReadOnlyList<ClipFormat> Formats { get; }
 
-    /// <summary>Hash over every captured format; equal hashes are confirmed byte-for-byte before merging.</summary>
+    /// <summary>Identity hash (<see cref="ClipCapture.IdentityHash"/>); equal hashes are confirmed before merging.</summary>
     public UInt128 ContentHash { get; }
 
     /// <summary>The plain text searched by the filter box (file paths for files, empty for images).</summary>
@@ -155,28 +155,49 @@ internal sealed class ClipEntry
         return null;
     }
 
+    /// <summary>
+    /// Whether both are the same item (<see cref="ClipCapture.IdentityHash"/>): same text, same
+    /// files, or the same image bytes, whatever other formats came with each copy.
+    /// </summary>
     public bool HasSameContent(ClipEntry other)
     {
-        if (ContentHash != other.ContentHash || Formats.Count != other.Formats.Count)
+        if (ContentHash != other.ContentHash || Kind != other.Kind)
         {
             return false;
         }
-        for (int i = 0; i < Formats.Count; i++)
+        if (Kind != ClipKind.Image)
         {
-            if (Formats[i].Name != other.Formats[i].Name || Formats[i].Length != other.Formats[i].Length)
-            {
-                return false;
-            }
+            return SearchText == other.SearchText;
         }
-        // Equal 128-bit hashes and shapes: confirm byte for byte (reads spilled payloads, rarely).
-        for (int i = 0; i < Formats.Count; i++)
+        // Equal 128-bit hashes: confirm the image formats byte for byte (reads spilled payloads, rarely).
+        List<ClipFormat> mine = ImageFormats();
+        List<ClipFormat> theirs = other.ImageFormats();
+        if (mine.Count != theirs.Count)
         {
-            if (!Formats[i].ReadData().AsSpan().SequenceEqual(other.Formats[i].ReadData()))
+            return false;
+        }
+        for (int i = 0; i < mine.Count; i++)
+        {
+            if (mine[i].Name != theirs[i].Name || mine[i].Length != theirs[i].Length
+                || !mine[i].ReadData().AsSpan().SequenceEqual(theirs[i].ReadData()))
             {
                 return false;
             }
         }
         return true;
+    }
+
+    private List<ClipFormat> ImageFormats()
+    {
+        var images = new List<ClipFormat>(2);
+        foreach (ClipFormat format in Formats)
+        {
+            if (ClipCapture.IsImageFormat(format.Name))
+            {
+                images.Add(format);
+            }
+        }
+        return images;
     }
 
     public void Spill(PayloadCache cache)

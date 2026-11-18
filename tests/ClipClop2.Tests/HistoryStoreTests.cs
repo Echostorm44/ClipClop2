@@ -1,4 +1,3 @@
-using System.IO.Hashing;
 using System.Text;
 using ClipClop2.History;
 
@@ -8,11 +7,12 @@ internal sealed class HistoryStoreTests
 {
     private static DateTime clock = new(2026, 9, 30, 12, 0, 0, DateTimeKind.Local);
 
-    private static ClipEntry Text(string text, int padBytes = 0)
+    private static ClipEntry Text(string text, int padBytes = 0, string source = "Test", params ClipFormat[] extra)
     {
         byte[] data = Encoding.Unicode.GetBytes(text + new string(' ', padBytes / 2));
         clock = clock.AddSeconds(1);
-        return new ClipEntry(ClipKind.Text, [new ClipFormat(13, "CF_UNICODETEXT", data)], XxHash128.HashToUInt128(data), text, "Test", clock);
+        List<ClipFormat> formats = [.. extra, new ClipFormat(13, "CF_UNICODETEXT", data)];
+        return new ClipEntry(ClipKind.Text, formats, ClipCapture.IdentityHash(ClipKind.Text, formats, text), text, source, clock);
     }
 
     [Test]
@@ -27,17 +27,49 @@ internal sealed class HistoryStoreTests
     }
 
     [Test]
-    public async Task RecopyMovesExistingEntryInsteadOfDuplicating()
+    public async Task RecopyReplacesTheEntryAtTheTopInsteadOfDuplicating()
     {
         var store = new HistoryStore(1_000_000);
-        ClipEntry first = store.Add(Text("repeat"));
+        store.Add(Text("repeat"));
         store.Add(Text("other"));
 
         ClipEntry again = store.Add(Text("repeat"));
 
         await Assert.That(store.Count).IsEqualTo(2);
-        await Assert.That(ReferenceEquals(again, first)).IsTrue();
-        await Assert.That(store[0].SearchText).IsEqualTo("repeat");
+        await Assert.That(store[0]).IsSameReferenceAs(again);
+        await Assert.That(store[1].SearchText).IsEqualTo("other");
+    }
+
+    [Test]
+    public async Task SameTextCopiedFiveTimesFromDifferentApps_IsOneEntry_WithTheLatestCopy()
+    {
+        var store = new HistoryStore(1_000_000);
+        ClipEntry last = null!;
+        for (int i = 0; i < 5; i++)
+        {
+            // Each copy carries a different app-specific format, as OneNote and browsers do.
+            last = store.Add(Text("Hi Bob", source: $"App{i}", extra: new ClipFormat(0xC001, "OneNote 2010 Internal Format", [(byte)i])));
+            store.Add(Text($"something else {i}"));
+        }
+
+        int bobs = store.Snapshot().Count(e => e.SearchText == "Hi Bob");
+        await Assert.That(bobs).IsEqualTo(1);
+        await Assert.That(store[1]).IsSameReferenceAs(last);
+        await Assert.That(last.SourceApp).IsEqualTo("App4");
+        await Assert.That(last.Formats[0].ReadData()[0]).IsEqualTo((byte)4);
+        await Assert.That(store.Count).IsEqualTo(6);
+    }
+
+    [Test]
+    public async Task RecopyReleasesTheReplacedEntrysBytesFromTheBudget()
+    {
+        var store = new HistoryStore(1_000_000);
+        store.Add(Text("same"));
+        long before = store.UnpinnedBytes;
+
+        store.Add(Text("same"));
+
+        await Assert.That(store.UnpinnedBytes).IsEqualTo(before);
     }
 
     [Test]

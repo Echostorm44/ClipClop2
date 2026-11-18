@@ -2,7 +2,7 @@ namespace ClipClop2.History;
 
 /// <summary>
 /// The clipboard history: pinned entries first in the user's order, then unpinned entries newest
-/// first. Copying something already present moves that entry instead of adding a duplicate.
+/// first. Copying something already present (same text, files or image) never adds a second entry.
 /// Unpinned entries are evicted oldest-first to stay within the byte budget; pinned entries never are.
 /// </summary>
 /// <remarks>Owned by the UI thread; not thread-safe.</remarks>
@@ -39,23 +39,25 @@ internal sealed class HistoryStore
     }
 
     /// <summary>
-    /// Records a copy. Returns the entry that now represents it: the existing one when the content was
-    /// already in history (moved to the top of the unpinned section, or left in place if pinned).
+    /// Records a copy. Returns the entry that now represents it. Content already in history is not
+    /// added twice: an unpinned match is replaced by this copy at the top (same item, but its formats
+    /// and source are what was just copied, so that is what pastes); a pinned match keeps the version
+    /// that was pinned, in place, and only takes the new copy time.
     /// </summary>
     public ClipEntry Add(ClipEntry entry)
     {
         ClipEntry? existing = FindSameContent(entry);
-        if (existing is not null)
+        if (existing is { Pinned: true })
         {
             entry.Release();
             existing.CopiedAt = entry.CopiedAt;
-            if (!existing.Pinned)
-            {
-                unpinned.Remove(existing);
-                unpinned.Insert(0, existing);
-            }
             Changed?.Invoke();
             return existing;
+        }
+        if (existing is not null)
+        {
+            RemoveUnpinned(existing);
+            existing.Release();
         }
 
         unpinned.Insert(0, entry);

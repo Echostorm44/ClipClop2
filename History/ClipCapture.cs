@@ -26,20 +26,12 @@ internal static partial class ClipCapture
         }
 
         var formats = new List<ClipFormat>(snapshot.Formats.Count);
-        var hasher = new XxHash128();
-        Span<byte> length = stackalloc byte[4];
         foreach (ClipboardRawFormat raw in snapshot.Formats)
         {
             byte[] data = MemoryMarshal.TryGetArray(raw.Data, out ArraySegment<byte> segment)
                 && segment.Offset == 0 && segment.Count == segment.Array!.Length
                 ? segment.Array
                 : raw.Data.ToArray();
-
-            // Name and length are hashed too, so the same bytes under another format differ.
-            hasher.Append(MemoryMarshal.AsBytes(raw.Name.AsSpan()));
-            BinaryPrimitives.WriteInt32LittleEndian(length, data.Length);
-            hasher.Append(length);
-            hasher.Append(data);
             formats.Add(new ClipFormat(raw.Id, raw.Name, data));
         }
 
@@ -47,8 +39,44 @@ internal static partial class ClipCapture
         {
             return null;
         }
-        return new ClipEntry(kind, formats, hasher.GetCurrentHashAsUInt128(), searchText, sourceApp, copiedAt);
+        return new ClipEntry(kind, formats, IdentityHash(kind, formats, searchText), searchText, sourceApp, copiedAt);
     }
+
+    /// <summary>
+    /// What makes two copies the same history item: the text for text kinds, the paths for files,
+    /// the image data for images. The formats around it (HTML, RTF, an app's private formats such as
+    /// OneNote's) differ from copy to copy and from app to app, so they are left out: copying
+    /// "Hi Bob" five times, from anywhere, keeps one entry.
+    /// </summary>
+    public static UInt128 IdentityHash(ClipKind kind, IReadOnlyList<ClipFormat> formats, string searchText)
+    {
+        var hasher = new XxHash128();
+        Span<byte> buffer = stackalloc byte[4];
+        buffer[0] = (byte)kind;
+        hasher.Append(buffer[..1]);
+        if (kind != ClipKind.Image)
+        {
+            hasher.Append(MemoryMarshal.AsBytes(searchText.AsSpan()));
+            return hasher.GetCurrentHashAsUInt128();
+        }
+        foreach (ClipFormat format in formats)
+        {
+            if (!IsImageFormat(format.Name))
+            {
+                continue;
+            }
+            // Name and length too, so the same bytes under another format differ.
+            byte[] data = format.ReadData();
+            hasher.Append(MemoryMarshal.AsBytes(format.Name.AsSpan()));
+            BinaryPrimitives.WriteInt32LittleEndian(buffer, data.Length);
+            hasher.Append(buffer);
+            hasher.Append(data);
+        }
+        return hasher.GetCurrentHashAsUInt128();
+    }
+
+    /// <summary>The formats that carry an image's pixels (what identifies an image entry).</summary>
+    public static bool IsImageFormat(string name) => name is "PNG" or "CF_DIBV5" or "CF_DIB" or "CF_ENHMETAFILE";
 
     /// <summary>The entry kind and its searchable text, or null when nothing is displayable.</summary>
     internal static (ClipKind Kind, string SearchText)? Classify(IReadOnlyList<ClipFormat> formats)

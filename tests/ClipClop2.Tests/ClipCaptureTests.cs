@@ -41,15 +41,71 @@ internal sealed class ClipCaptureTests
     }
 
     [Test]
-    public async Task SameContent_SameHash_DifferentFormatName_DifferentHash()
+    public async Task SameText_IsTheSameItem_WhateverOtherFormatsCameWithIt()
     {
-        var a = ClipCapture.Create(new ClipboardRawSnapshot([Unicode("x")]), "", DateTime.Now)!;
-        var b = ClipCapture.Create(new ClipboardRawSnapshot([Unicode("x")]), "", DateTime.Now)!;
-        var c = ClipCapture.Create(new ClipboardRawSnapshot([new ClipboardRawFormat(0xC001, "Custom", Encoding.Unicode.GetBytes("x\0")), Unicode("x")]), "", DateTime.Now)!;
+        var plain = ClipCapture.Create(new ClipboardRawSnapshot([Unicode("Hi Bob")]), "", DateTime.Now)!;
+        // OneNote/Word-style copy: extra formats that differ on every copy.
+        var rich = ClipCapture.Create(new ClipboardRawSnapshot(
+            [
+                new ClipboardRawFormat(0xC001, "OneNote 2010 Internal Format", new byte[] { 1, 2, 3, 4 }),
+                new ClipboardRawFormat(0xC002, "HTML Format", Encoding.UTF8.GetBytes("<b>Hi Bob</b> copied 09:31")),
+                Unicode("Hi Bob"),
+            ]), "", DateTime.Now)!;
+        var richAgain = ClipCapture.Create(new ClipboardRawSnapshot(
+            [
+                new ClipboardRawFormat(0xC001, "OneNote 2010 Internal Format", new byte[] { 9, 9, 9 }),
+                new ClipboardRawFormat(0xC002, "HTML Format", Encoding.UTF8.GetBytes("<b>Hi Bob</b> copied 14:02")),
+                Unicode("Hi Bob"),
+            ]), "", DateTime.Now)!;
 
-        await Assert.That(a.ContentHash).IsEqualTo(b.ContentHash);
-        await Assert.That(a.HasSameContent(b)).IsTrue();
-        await Assert.That(c.ContentHash).IsNotEqualTo(a.ContentHash);
+        await Assert.That(rich.ContentHash).IsEqualTo(plain.ContentHash);
+        await Assert.That(rich.HasSameContent(plain)).IsTrue();
+        await Assert.That(richAgain.HasSameContent(rich)).IsTrue();
+    }
+
+    [Test]
+    public async Task UnicodeTextPaddingAfterTheNull_DoesNotMakeANewItem()
+    {
+        // GlobalSize can report more than the text: bytes after the terminator are not content.
+        byte[] padded = [.. Encoding.Unicode.GetBytes("x\0"), 0xAB, 0xCD, 0, 0];
+        var a = ClipCapture.Create(new ClipboardRawSnapshot([Unicode("x")]), "", DateTime.Now)!;
+        var b = ClipCapture.Create(new ClipboardRawSnapshot([new ClipboardRawFormat(13, "CF_UNICODETEXT", padded)]), "", DateTime.Now)!;
+
+        await Assert.That(b.HasSameContent(a)).IsTrue();
+    }
+
+    [Test]
+    public async Task DifferentText_OrTextVersusFiles_AreDifferentItems()
+    {
+        var bob = ClipCapture.Create(new ClipboardRawSnapshot([Unicode("Hi Bob")]), "", DateTime.Now)!;
+        var bobs = ClipCapture.Create(new ClipboardRawSnapshot([Unicode("Hi Bob ")]), "", DateTime.Now)!;
+        var pathText = ClipCapture.Create(new ClipboardRawSnapshot([Unicode("C:\\a.txt")]), "", DateTime.Now)!;
+
+        byte[] paths = Encoding.Unicode.GetBytes("C:\\a.txt\0\0");
+        byte[] drop = new byte[20 + paths.Length];
+        BitConverter.GetBytes(20).CopyTo(drop, 0);
+        BitConverter.GetBytes(1).CopyTo(drop, 16);
+        paths.CopyTo(drop, 20);
+        var file = ClipCapture.Create(new ClipboardRawSnapshot([new ClipboardRawFormat(15, "CF_HDROP", drop)]), "", DateTime.Now)!;
+
+        await Assert.That(bobs.HasSameContent(bob)).IsFalse();
+        await Assert.That(file.SearchText).IsEqualTo(pathText.SearchText);
+        await Assert.That(file.HasSameContent(pathText)).IsFalse();
+    }
+
+    [Test]
+    public async Task Images_AreTheSameItem_ByTheirImageBytesOnly()
+    {
+        byte[] png = [0x89, (byte)'P', (byte)'N', (byte)'G', 1, 2, 3];
+        var a = ClipCapture.Create(new ClipboardRawSnapshot(
+            [new ClipboardRawFormat(0xC003, "PNG", png), new ClipboardRawFormat(0xC004, "Chromium Web Custom MIME Data Format", new byte[] { 1 })]), "", DateTime.Now)!;
+        var b = ClipCapture.Create(new ClipboardRawSnapshot(
+            [new ClipboardRawFormat(0xC003, "PNG", png), new ClipboardRawFormat(0xC004, "Chromium Web Custom MIME Data Format", new byte[] { 2 })]), "", DateTime.Now)!;
+        var other = ClipCapture.Create(new ClipboardRawSnapshot([new ClipboardRawFormat(0xC003, "PNG", new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G', 9 })]), "", DateTime.Now)!;
+
+        await Assert.That(a.Kind).IsEqualTo(ClipKind.Image);
+        await Assert.That(b.HasSameContent(a)).IsTrue();
+        await Assert.That(other.HasSameContent(a)).IsFalse();
     }
 
     [Test]

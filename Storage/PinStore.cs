@@ -1,4 +1,3 @@
-using System.IO.Hashing;
 using System.Text;
 using ClipClop2.History;
 
@@ -61,7 +60,6 @@ internal static class PinStore
                 return entries;
             }
             int count = reader.ReadInt32();
-            Span<byte> length = stackalloc byte[4];
             for (int i = 0; i < count; i++)
             {
                 var kind = (ClipKind)reader.ReadByte();
@@ -70,20 +68,15 @@ internal static class PinStore
                 string search = reader.ReadString();
                 int formatCount = reader.ReadInt32();
                 var formats = new List<ClipFormat>(formatCount);
-                var hasher = new XxHash128();
                 for (int f = 0; f < formatCount; f++)
                 {
                     uint id = reader.ReadUInt32();
                     string name = reader.ReadString();
                     byte[] data = reader.ReadBytes(reader.ReadInt32());
-                    // Same hash as ClipCapture, so re-copying a pinned item finds it.
-                    hasher.Append(System.Runtime.InteropServices.MemoryMarshal.AsBytes(name.AsSpan()));
-                    System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(length, data.Length);
-                    hasher.Append(length);
-                    hasher.Append(data);
                     formats.Add(new ClipFormat(id, name, data));
                 }
-                entries.Add(new ClipEntry(kind, formats, hasher.GetCurrentHashAsUInt128(), search, source, copiedAt));
+                // Same identity as ClipCapture, so re-copying a pinned item finds it.
+                entries.Add(new ClipEntry(kind, formats, ClipCapture.IdentityHash(kind, formats, search), search, source, copiedAt));
             }
         }
         catch (EndOfStreamException)
